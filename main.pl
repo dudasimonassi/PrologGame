@@ -208,15 +208,14 @@ repetir_ate_comando_valido(Jogador) :-
 verificar_movimentos_disponiveis(Jogador) :-
     tabuleiro(Tab),
     (   Jogador = 'X' -> Peca = 'X'; Peca = 'O'),
-    (   % Verifica se há capturas disponíveis
-        between(1, 8, X1),
+    (   between(1, 8, X1),
         between(1, 8, Y1),
         peca_na_posicao(Tab, X1, Y1, Peca),
         between(1, 8, X2),
         between(1, 8, Y2),
         captura_valida_disponivel(Tab, X1, Y1, X2, Y2)
     ->  true
-    ;   % Verifica se há movimentos simples disponíveis
+    ;  
         between(1, 8, X1),
         between(1, 8, Y1),
         peca_na_posicao(Tab, X1, Y1, Peca),
@@ -229,7 +228,7 @@ verificar_movimentos_disponiveis(Jogador) :-
     ;   false
     ).
 
-% Função para verificar se uma captura é possível (sem fazer a captura)
+% Função para verificar se uma captura é possível 
 captura_valida_disponivel(Tab, X1, Y1, X2, Y2) :-
     peca_na_posicao(Tab, X1, Y1, Peca),
     Peca \= ' ',
@@ -251,19 +250,57 @@ captura_valida_disponivel(Tab, X1, Y1, X2, Y2) :-
     between(1, 8, X2),
     between(1, 8, Y2),
     peca_livre(Tab, X2, Y2).
+
+% Lógica de captura para considerar a captura múltipla pela dama
+cap_aux(Tab, X1, Y1, [Coord2 | Rest]) :-
+    posicao_valida(Coord2, X2, Y2),
+    captura_valida(Tab, X1, Y1, X2, Y2, XCap, YCap),
+    set_peca(Tab, XCap, YCap, ' ', TempTab),
+    mover(TempTab, X1, Y1, X2, Y2, NovoTab),
+    atualizar_tabuleiro(NovoTab),
+    mostrar_tabuleiro,
+    (Rest = [] ->
+        continuar_captura_jogador(NovoTab, 'D', X2, Y2)
+    ;   
+        cap_aux(NovoTab, X2, Y2, Rest)
+    ).
+
+% Função para continuar captura pela dama ou peça se houver capturas disponíveis
+continuar_captura_jogador(Tab, Peca, X, Y) :-
+    (encontrar_captura_valida(Tab, Peca, X, Y, NX, NY, NXCap, NYCap) ->
+        indice_para_coluna(X, Col1), indice_para_linha(Y, Row1),
+        indice_para_coluna(NX, Col2), indice_para_linha(NY, Row2),
+        format('Capturando com a peca ~w da posicao ~w~w para ~w~w.\n', [Peca, Col1, Row1, Col2, Row2]),
+        set_peca(Tab, NXCap, NYCap, ' ', TempTab),  
+        mover(TempTab, X, Y, NX, NY, NovoTab),    
+        atualizar_tabuleiro(NovoTab),              
+        mostrar_tabuleiro,
+        continuar_captura_jogador(NovoTab, Peca, NX, NY)
+    ; 
+        true % Não há mais capturas possíveis, fim da jogada
+    ).
+
+% Função para verificar se uma peça deve ser promovida a dama
+verificar_promocao(Tab, X, Y, Peca, NovoTab) :-
+    ( Peca = 'X', Y =:= 1 ->
+        set_peca(Tab, X, Y, 'D', NovoTab)
+    ; Peca = 'O', Y =:= 8 ->
+        set_peca(Tab, X, Y, 'DO', NovoTab)
+    ; NovoTab = Tab ).
     
-% Lógica do movimento simples
+% Lógica do movimento simples, incluindo promoção a dama
 mv(Coord1, Coord2) :-
     % Validação do movimento selecionado
     posicao_valida(Coord1, X1, Y1),
     posicao_valida(Coord2, X2, Y2),
     tabuleiro(Tab),
     peca_na_posicao(Tab, X1, Y1, Peca),
-    Peca \= ' ', 
+    Peca \= ' ',
     movimento_valido(Peca, X1, Y1, X2, Y2),
-    % Caso o movimento seja válido, o movimento é realizado
-    mover(Tab, X1, Y1, X2, Y2, NovoTab),
-    atualizar_tabuleiro(NovoTab),
+    % Caso o movimento seja válido, realiza o movimento e verifica promoção
+    mover(Tab, X1, Y1, X2, Y2, NovoTab1),
+    verificar_promocao(NovoTab1, X2, Y2, Peca, NovoTab2),
+    atualizar_tabuleiro(NovoTab2),
     mostrar_tabuleiro.
 
 % Função que valida a posição no tabuleiro para validar o movimento
@@ -283,56 +320,66 @@ peca_na_posicao(Tab, X, Y, Peca) :-
     nth1(Y, Tab, Linha),
     nth1(X, Linha, Peca).
 
-% Regras para as peças O
-movimento_valido('O', X1, Y1, X2, Y2) :-
-    nonvar(X1), nonvar(Y1), nonvar(X2), nonvar(Y2), 
-    DX is abs(X2 - X1),
-    DY is Y2 - Y1,
-    DX =:= 1,
-    DY =:= 1.
+% Verifica se o caminho está livre para a dama (diagonal)
+caminho_livre(X1, Y1, X2, Y2) :-
+    DX is sign(X2 - X1),
+    DY is sign(Y2 - Y1),
+    X is X1 + DX,
+    Y is Y1 + DY,
+    caminho_vazio(X, Y, X2, Y2).
 
-% Regras para as peças X
-movimento_valido('X', X1, Y1, X2, Y2) :-
+caminho_vazio(X, Y, X, Y) :- !. % Se chegou ao destino, está livre
+caminho_vazio(X, Y, X2, Y2) :-
+    tabuleiro(Tab),
+    peca_na_posicao(Tab, X, Y, ' '), % Verifica se a casa está vazia
+    X1 is X + sign(X2 - X),
+    Y1 is Y + sign(Y2 - Y),
+    caminho_vazio(X1, Y1, X2, Y2).
+
+% Lógica de movimento para damas 'D' (peça 'X' promovida) e 'DO' (peça 'O' promovida)
+movimento_valido('D', X1, Y1, X2, Y2) :-
+    nonvar(X1), nonvar(Y1), nonvar(X2), nonvar(Y2),
+    abs(X2 - X1) =:= abs(Y2 - Y1), % Movimento na diagonal
+    caminho_livre(X1, Y1, X2, Y2). % Verifica se o caminho está livre
+
+movimento_valido('DO', X1, Y1, X2, Y2) :-
+    nonvar(X1), nonvar(Y1), nonvar(X2), nonvar(Y2),
+    abs(X2 - X1) =:= abs(Y2 - Y1), % Movimento na diagonal
+    caminho_livre(X1, Y1, X2, Y2). % Verifica se o caminho está livre
+
+movimento_valido('X', X1, Y1, X2, Y2) :- % Movimentos normais das peças 'X'
     nonvar(X1), nonvar(Y1), nonvar(X2), nonvar(Y2),
     DX is abs(X2 - X1),
     DY is Y1 - Y2,
     DX =:= 1,
     DY =:= 1.
 
-% Lógica do movimento de captura 
-cap(Coord1, [Coord2 | Rest]) :-
+movimento_valido('O', X1, Y1, X2, Y2) :- % Movimentos normais das peças 'O'
+    nonvar(X1), nonvar(Y1), nonvar(X2), nonvar(Y2),
+    DX is abs(X2 - X1),
+    DY is Y2 - Y1,
+    DX =:= 1,
+    DY =:= 1.
+
+
+% Função que realiza capturas, permitindo múltiplas capturas em um mesmo movimento
+cap(Coord1, CoordList) :-
     posicao_valida(Coord1, X1, Y1),
-    posicao_valida(Coord2, X2, Y2),
     tabuleiro(Tab),
+    cap_aux(Tab, X1, Y1, CoordList).
 
-    captura_valida(Tab, X1, Y1, X2, Y2, XCap, YCap),
-    
-    set_peca(Tab, XCap, YCap, ' ', TempTab),
-    mover(TempTab, X1, Y1, X2, Y2, NovoTab),
-    atualizar_tabuleiro(NovoTab),
-    mostrar_tabuleiro,
-
-    (Rest = [] -> true ; cap(Coord2, Rest)).
-
-% Função para validação da captura
+% Lógica de captura para damas
 captura_valida(Tab, X1, Y1, X2, Y2, XCap, YCap) :-
     peca_na_posicao(Tab, X1, Y1, Peca),
-    Peca \= ' ',
-    
-    DX is abs(X2 - X1),
-    DY is abs(Y2 - Y1),
-    DX =:= 2,
-    DY =:= 2, 
-    
+    member(Peca, ['D', 'DO']), % Verifica se é uma dama
+    abs(X2 - X1) =:= abs(Y2 - Y1), % Movimento na diagonal
     XCap is (X1 + X2) // 2,
     YCap is (Y1 + Y2) // 2,
-    
     between(1, 8, XCap),
     between(1, 8, YCap),
     peca_na_posicao(Tab, XCap, YCap, PecaCapturada),
     PecaCapturada \= ' ', 
     PecaCapturada \= Peca, 
-
     between(1, 8, X2),
     between(1, 8, Y2),
     peca_livre(Tab, X2, Y2).
@@ -377,11 +424,13 @@ atualizar_tabuleiro(NovoTab) :-
 % Realizar jogada do computador de forma aleatória, priorizando capturas _ jogo tradicional
 realizar_jogada_computador(Peca) :-
     write('Pensando...'), nl,
-    sleep(3), 
+    sleep(3),
     tabuleiro(Tab),
-    % Primeiramente, tenta encontrar uma captura válida
-    (   encontrar_captura_valida(Tab, Peca, X1, Y1, X2, Y2, XCap, YCap) ->
-        % Realiza a captura
+    % Primeiro, obtém todas as capturas possíveis
+    encontrar_captura_valida(Tab, Peca, Capturas),
+    (   Capturas \= [] ->
+        % Realiza a primeira captura da lista
+        Capturas = [(X1, Y1, X2, Y2, XCap, YCap)|_],
         indice_para_coluna(X1, Col1), indice_para_linha(Y1, Row1),
         indice_para_coluna(X2, Col2), indice_para_linha(Y2, Row2),
         format('Capturando com a peca ~w da posicao ~w~w para ~w~w.~n', [Peca, Col1, Row1, Col2, Row2]),
@@ -392,6 +441,7 @@ realizar_jogada_computador(Peca) :-
         trocar_turno_tradicional(Peca, computador)
     ;   % Se não houver captura válida, tenta um movimento simples
         (encontrar_jogada_valida(Tab, Peca, X1, Y1, X2, Y2) ->
+            % Realiza o movimento
             indice_para_coluna(X1, Col1), indice_para_linha(Y1, Row1),
             indice_para_coluna(X2, Col2), indice_para_linha(Y2, Row2),
             format('Movendo a peca ~w da posicao ~w~w para ~w~w.~n', [Peca, Col1, Row1, Col2, Row2]),
@@ -408,13 +458,17 @@ realizar_jogada_computador(Peca) :-
     ).
 
 % Realizar jogada do computador de forma aleatória, priorizando capturas _ jogo automático
+% Realizar jogada do computador de forma obrigatória priorizando capturas _ jogo automático
 realizar_jogada_computador_automatico(Peca) :-
     write('Pensando...'), nl,
-    sleep(3), 
+    sleep(3),
     tabuleiro(Tab),
-    % Primeiramente, tenta encontrar uma captura válida
-    (   encontrar_captura_valida(Tab, Peca, X1, Y1, X2, Y2, XCap, YCap) ->
-        % Realiza a captura
+    % Primeiro, obtém todas as capturas possíveis
+    encontrar_todas_capturas(Tab, Peca, Capturas),
+    (   
+        Capturas \= [] ->
+        % Se houver capturas disponíveis, realiza a primeira captura da lista
+        Capturas = [(X1, Y1, X2, Y2, XCap, YCap)|_],
         indice_para_coluna(X1, Col1), indice_para_linha(Y1, Row1),
         indice_para_coluna(X2, Col2), indice_para_linha(Y2, Row2),
         format('Capturando com a peca ~w da posicao ~w~w para ~w~w.~n', [Peca, Col1, Row1, Col2, Row2]),
@@ -422,8 +476,11 @@ realizar_jogada_computador_automatico(Peca) :-
         mover(TempTab, X1, Y1, X2, Y2, NovoTab),
         atualizar_tabuleiro(NovoTab),
         mostrar_tabuleiro,
+        % Continua jogando se houver múltiplas capturas disponíveis
+        continuar_captura_jogador(NovoTab, Peca, X2, Y2),
         trocar_turno_automatico(Peca, computador)
-    ;   % Se não houver captura válida, tenta um movimento simples
+    ;
+        % Se não houver capturas disponíveis, tenta um movimento simples
         (encontrar_jogada_valida(Tab, Peca, X1, Y1, X2, Y2) ->
             indice_para_coluna(X1, Col1), indice_para_linha(Y1, Row1),
             indice_para_coluna(X2, Col2), indice_para_linha(Y2, Row2),
@@ -432,7 +489,8 @@ realizar_jogada_computador_automatico(Peca) :-
             atualizar_tabuleiro(NovoTab),
             mostrar_tabuleiro,
             trocar_turno_automatico(Peca, computador)
-        ;   % Se não houver jogadas disponíveis, o jogo termina
+        ;
+            % Se não houver jogadas disponíveis, o jogo termina
             write('--------------------------------------------------------------------------------------------------------------------------------------------------'), nl,
             format('Nenhuma jogada disponivel para o jogador ~w. Fim de jogo! O outro jogador venceu.', [Peca]), nl,
             write('--------------------------------------------------------------------------------------------------------------------------------------------------'), nl,
@@ -440,15 +498,15 @@ realizar_jogada_computador_automatico(Peca) :-
         )
     ).
 
-% Função para encontrar uma captura válida para o computador
+
+% Função para encontrar uma captura válida (utilizada em outras partes do código)
 encontrar_captura_valida(Tab, Peca, X1, Y1, X2, Y2, XCap, YCap) :-
     between(1, 8, X1),
     between(1, 8, Y1),
     peca_na_posicao(Tab, X1, Y1, Peca),
     between(1, 8, X2),
     between(1, 8, Y2),
-    captura_valida(Tab, X1, Y1, X2, Y2, XCap, YCap),
-    !. 
+    captura_valida(Tab, X1, Y1, X2, Y2, XCap, YCap).
 
 % Função para encontrar uma jogada válida para o computador
 encontrar_jogada_valida(Tab, Peca, X1, Y1, X2, Y2) :-
@@ -459,8 +517,18 @@ encontrar_jogada_valida(Tab, Peca, X1, Y1, X2, Y2) :-
     between(1, 8, X2),
     between(1, 8, Y2),
     movimento_valido(Peca, X1, Y1, X2, Y2),
-    peca_livre(Tab, X2, Y2),
-    !.
+    peca_livre(Tab, X2, Y2).
+
+% Função para obter todas as capturas possíveis para uma peça específica
+encontrar_todas_capturas(Tab, Peca, Capturas) :-
+    findall((X1, Y1, X2, Y2, XCap, YCap),
+            (between(1, 8, X1),
+             between(1, 8, Y1),
+             peca_na_posicao(Tab, X1, Y1, Peca),
+             between(1, 8, X2),
+             between(1, 8, Y2),
+             captura_valida(Tab, X1, Y1, X2, Y2, XCap, YCap)),
+            Capturas).
 
 % --------------------------------------------------------------------- Lógica da troca de turnos --------------------------------------------------------------------- %
 % Trocar o turno entre jogadores _ jogo tradicional
